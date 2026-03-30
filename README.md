@@ -4,6 +4,8 @@ Hackathon-GIG-2026
 
 ---
 
-## SurfaceVolume
+## MeshData
 
 Problème n°1
+
+Volume et aire des planètes/astéroïdes.
