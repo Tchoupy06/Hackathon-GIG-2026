@@ -1,16 +1,8 @@
 #pragma once
 
-#include <CGAL/Simple_cartesian.h>
-#include <CGAL/Surface_mesh.h>
-#include <CGAL/Polygon_mesh_processing/measure.h>
-//#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
-
-
-namespace PMP = CGAL::Polygon_mesh_processing;
-
-typedef CGAL::Simple_cartesian<double> Kernel;
-typedef Kernel::Point_3 Point;
-typedef CGAL::Surface_mesh<Point> Mesh;
+#include <iostream>
+#include <fstream>
+#include <cstdlib>
 
 
 struct MeshData {
@@ -18,4 +10,8 @@ struct MeshData {
 	double area = 0;
 };
 
-MeshData getMeshData(Mesh& mesh);
+
+MeshData extractMeshData(const std::string& temp_file);
+
+
+MeshData getMeshData(const std::string& mesh);

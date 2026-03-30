@@ -1,20 +1,18 @@
+#pragma once
+
 #include "MeshData.hpp"
-#include "Utils.hpp"
 
 
-int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <fichier>" << std::endl;
-        return 1;
+int main(int argc, char* argv[]) {
+    if (argc == 1) {
+        std::cout << "Usage: MeshData.exe <mesh>" << std::endl;
+        return EXIT_FAILURE;
     }
 
-    Mesh mesh;
-    loadMesh(argv[1], mesh);
+    MeshData mesh_data = getMeshData(argv[1]);
 
-    std::cout << "Maillage chargé : ";
-    displayMeshInfo(mesh);
+    std::cout << "Aire: " << mesh_data.area << " km2"
+        << "\nVolume: " << mesh_data.volume << " km2" << std::endl;
 
-    MeshData mesh_data = getMeshData(mesh);
-
-    displayMeshData(mesh_data);
+    return EXIT_SUCCESS;
 }
