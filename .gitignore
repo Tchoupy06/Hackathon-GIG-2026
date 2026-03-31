@@ -1,0 +1,85 @@
+# =========================
+# Project-specific folders
+# =========================
+/data/
+/build/
+/boulder_demo_single_scale/
+
+# =========================
+# CMake / build system
+# =========================
+/CMakeCache.txt
+/CMakeFiles/
+/cmake-build-*/
+/compile_commands.json
+/CTestTestfile.cmake
+/cmake_install.cmake
+/Makefile
+/install_manifest.txt
+
+# =========================
+# Binary / object files
+# =========================
+*.o
+*.obj
+*.lo
+*.slo
+*.pdb
+*.mod
+*.lai
+*.la
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+
+# =========================
+# Generated executables / bins
+# =========================
+/bin/
+/lib/
+/Debug/
+/Release/
+/x64/
+/x86/
+
+# =========================
+# macOS
+# =========================
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# =========================
+# Editors / IDEs
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =========================
+# Logs / temp files
+# =========================
+*.log
+*.tmp
+*.temp
+
+# =========================
+# Python caches (if any helper scripts exist)
+# =========================
+__pycache__/
+*.pyc
+
+# =========================
+# Mesh / result files you likely don't want in git
+# Uncomment if needed
+# =========================
+# *.ply
+# *.json
+# *.txt
