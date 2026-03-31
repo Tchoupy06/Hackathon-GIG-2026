@@ -1,7 +1,8 @@
 #include "../include/MeshData.hpp"
 #include "../include/AstroProperties.hpp"
 #include "../include/Boulder_detector.hpp"
-
+#include "../include/Boulder_profiles.hpp"
+#include "../include/Boulder_dataset_profiles.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -32,7 +33,7 @@ struct AstroInput {
 //             }
 
 //             double density = getDensityKgPerM3(astro.name);
-//             MeshData data = getMeshData(mesh, density);
+//             MeshData data = getMeshData(mesh, density, LinearUnit::Kilometer);
 //             displayMeshData(astro.name, data);
 //         }
 //         catch (const std::exception& e) {
@@ -45,39 +46,28 @@ struct AstroInput {
 
 int main() {
     try {
-        boulder::PipelineParams params;
-        params.mesh_path = "/Users/thangthend11/Desktop/Hackathon-GIG-2026/data/bennu_OLA_v21_PTM_very-high.obj";
-        params.output_dir = "boulder_demo_single_scale";
+        auto params = dataset_profiles::RyuguPersonalHiRes(
+            "/Users/thangthend11/Desktop/Hackathon-GIG-2026/data/SHAPE_SFM_RYUGU_3M_v20180804.obj",
+            "boulder_demo_ryugu"
+        );
 
-        params.smooth_iterations = 0;
-        params.radius_multiplier = 6.0;
-        params.min_neighbors = 20;
-        params.use_absolute_height = false;
-
-        params.height_threshold = std::numeric_limits<double>::quiet_NaN();
-        params.height_sigma_factor = 1.5;
-        params.roughness_max = std::numeric_limits<double>::quiet_NaN();
-
-        params.outer_ring_depth = 1;
-
-        params.min_vertices = 30;
-        params.min_max_height = 0.0;
-        params.min_diameter = 0.0;
-        params.max_diameter = std::numeric_limits<double>::infinity();
-        params.min_compactness = 0.0;
-        params.max_elongation = 3.0;
-        params.min_prominence_mean = 0.0;
-        params.min_prominence_max = 0.0;
-        params.min_boundary_drop = 0.0;
-        params.min_boundary_irregularity = 0.0;
-        params.max_boundary_irregularity = std::numeric_limits<double>::infinity();
-
-        params.visualize = true;
-        params.verbose = true;
+        // Ví dụ đổi sang:
+        // auto params = dataset_profiles::RyuguPersonalHiRes(...);
+        // auto params = dataset_profiles::ChuryPersonalHiRes(...);
+        // auto params = dataset_profiles::PhobosPersonalHiRes(...);
 
         auto result = boulder::DetectBouldersSingleScale(params);
-        std::cout << "[INFO] Final kept boulders = " << result.kept_boulders.size() << "\n";
-    } catch (const std::exception& e) {
+
+        std::cout << "[INFO] Final kept boulders = "
+                  << result.kept_boulders.size() << "\n";
+        std::cout << "[INFO] mean_edge_length    = "
+                  << result.mean_edge_length << "\n";
+        std::cout << "[INFO] radius used        = "
+                  << result.radius << "\n";
+        std::cout << "[INFO] threshold used     = "
+                  << result.used_threshold << "\n";
+    }
+    catch (const std::exception& e) {
         std::cerr << "[ERROR] " << e.what() << "\n";
         return 1;
     }

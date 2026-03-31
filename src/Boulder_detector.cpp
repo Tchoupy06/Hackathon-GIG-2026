@@ -25,6 +25,134 @@ using open3d::geometry::TriangleMesh;
 
 constexpr double kEps = 1e-12;
 
+struct DisjointSet {
+    std::vector<int> parent;
+    std::vector<int> rank;
+
+    explicit DisjointSet(int n) : parent(n), rank(n, 0) {
+        std::iota(parent.begin(), parent.end(), 0);
+    }
+
+    int Find(int x) {
+        if (parent[x] != x) {
+            parent[x] = Find(parent[x]);
+        }
+        return parent[x];
+    }
+
+    void Union(int a, int b) {
+        a = Find(a);
+        b = Find(b);
+        if (a == b) return;
+
+        if (rank[a] < rank[b]) std::swap(a, b);
+        parent[b] = a;
+        if (rank[a] == rank[b]) ++rank[a];
+    }
+};
+
+struct CsvRowInt {
+    double x = 0.0;
+    int y = 0;
+};
+
+struct CsvRowDouble {
+    double x = 0.0;
+    double y = 0.0;
+};
+
+void SaveCsvXY_Int(const std::vector<double>& xs,
+                   const std::vector<int>& ys,
+                   const std::string& path,
+                   const std::string& header_x,
+                   const std::string& header_y) {
+    std::ofstream ofs(path);
+    ofs << header_x << "," << header_y << "\n";
+    const std::size_t n = std::min(xs.size(), ys.size());
+    ofs << std::setprecision(16);
+    for (std::size_t i = 0; i < n; ++i) {
+        ofs << xs[i] << "," << ys[i] << "\n";
+    }
+}
+
+void SaveCsvXY_Double(const std::vector<double>& xs,
+                      const std::vector<double>& ys,
+                      const std::string& path,
+                      const std::string& header_x,
+                      const std::string& header_y) {
+    std::ofstream ofs(path);
+    ofs << header_x << "," << header_y << "\n";
+    const std::size_t n = std::min(xs.size(), ys.size());
+    ofs << std::setprecision(16);
+    for (std::size_t i = 0; i < n; ++i) {
+        ofs << xs[i] << "," << ys[i] << "\n";
+    }
+}
+
+void WriteBoulderDistributionGnuplotScript(const std::string& output_dir,
+                                           const std::string& body_label) {
+    std::ofstream gp(output_dir + "/plot_boulder_distribution.gp");
+
+    gp << "set datafile separator ','\n";
+    gp << "set terminal pngcairo size 1400,700\n";
+
+    gp << "set output '" << output_dir << "/boulder_size_histogram.png'\n";
+    gp << "set title 'Boulder size histogram - " << body_label << "'\n";
+    gp << "set xlabel 'Estimated diameter'\n";
+    gp << "set ylabel 'Count'\n";
+    gp << "set grid\n";
+    gp << "plot '" << output_dir
+       << "/boulder_size_histogram.csv' using 1:2 with boxes title 'Histogram'\n";
+
+    gp << "set output '" << output_dir << "/boulder_size_cumulative.png'\n";
+    gp << "set title 'Boulder cumulative size-frequency - " << body_label << "'\n";
+    gp << "set xlabel 'Estimated diameter D'\n";
+    gp << "set ylabel 'N(>=D) / surface area'\n";
+    gp << "set logscale xy\n";
+    gp << "set grid\n";
+    gp << "plot '" << output_dir
+       << "/boulder_size_cumulative.csv' using 1:3 with linespoints lw 2 title 'Cumulative density'\n";
+}
+
+Eigen::Vector3d ArrayToVec3(const std::array<double, 3>& c) {
+    return Eigen::Vector3d(c[0], c[1], c[2]);
+}
+
+const std::vector<int>& BoundaryOrAllVertices(const ComponentInfo& info) {
+    if (!info.boundary_vertices.empty()) return info.boundary_vertices;
+    return info.vertex_indices;
+}
+
+double MinDistanceBetweenVertexSets(const std::vector<Eigen::Vector3d>& vertices,
+                                    const std::vector<int>& a,
+                                    const std::vector<int>& b,
+                                    double early_exit_threshold) {
+    if (a.empty() || b.empty()) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    const std::vector<int>* small = &a;
+    const std::vector<int>* large = &b;
+    if (a.size() > b.size()) std::swap(small, large);
+
+    double best2 = std::numeric_limits<double>::infinity();
+    const double early2 = early_exit_threshold * early_exit_threshold;
+
+    for (int ia : *small) {
+        const Eigen::Vector3d& pa = vertices[ia];
+        for (int ib : *large) {
+            const double d2 = (pa - vertices[ib]).squaredNorm();
+            if (d2 < best2) {
+                best2 = d2;
+                if (best2 <= early2) {
+                    return std::sqrt(best2);
+                }
+            }
+        }
+    }
+    return std::sqrt(best2);
+}
+
 double MeanFinite(const std::vector<double>& values) {
     double sum = 0.0;
     std::size_t count = 0;
@@ -703,6 +831,129 @@ std::vector<ComponentInfo> MeasureComponents(const TriangleMesh& mesh,
     return infos;
 }
 
+std::vector<std::vector<int>> BuildComponentMergeGroups(
+        const TriangleMesh& mesh,
+        const std::vector<ComponentInfo>& component_infos,
+        double mean_edge_length,
+        int merge_knn,
+        double merge_boundary_distance_factor,
+        double merge_centroid_distance_factor,
+        double merge_height_difference_factor,
+        double merge_prominence_difference_factor,
+        bool verbose) {
+    std::vector<std::vector<int>> groups;
+
+    const int n = static_cast<int>(component_infos.size());
+    if (n == 0) return groups;
+    if (n == 1) {
+        groups.push_back({0});
+        return groups;
+    }
+
+    PointCloud centroid_cloud;
+    centroid_cloud.points_.reserve(component_infos.size());
+    for (const auto& info : component_infos) {
+        centroid_cloud.points_.push_back(ArrayToVec3(info.centroid));
+    }
+
+    KDTreeFlann centroid_tree;
+    centroid_tree.SetGeometry(centroid_cloud);
+
+    DisjointSet dsu(n);
+
+    const double boundary_thresh = merge_boundary_distance_factor * mean_edge_length;
+    const double height_thresh = merge_height_difference_factor * mean_edge_length;
+    const double prominence_thresh = merge_prominence_difference_factor * mean_edge_length;
+    const int knn = std::max(2, merge_knn);
+
+    int merged_pair_count = 0;
+
+    for (int i = 0; i < n; ++i) {
+        const auto& a = component_infos[i];
+        const Eigen::Vector3d ca = ArrayToVec3(a.centroid);
+
+        std::vector<int> idx(knn);
+        std::vector<double> dist2(knn);
+        const int found = centroid_tree.SearchKNN(ca, std::min(knn, n), idx, dist2);
+
+        for (int t = 0; t < found; ++t) {
+            const int j = idx[t];
+            if (j <= i) continue;
+
+            const auto& b = component_infos[j];
+            const Eigen::Vector3d cb = ArrayToVec3(b.centroid);
+
+            const double centroid_dist = (ca - cb).norm();
+            const double local_size =
+                    std::max({a.diameter_estimate, b.diameter_estimate, 3.0 * mean_edge_length});
+            const double centroid_thresh = merge_centroid_distance_factor * local_size;
+
+            if (centroid_dist > centroid_thresh) continue;
+            if (std::abs(a.mean_height - b.mean_height) > height_thresh) continue;
+            if (std::abs(a.prominence_mean - b.prominence_mean) > prominence_thresh) continue;
+
+            const auto& va = BoundaryOrAllVertices(a);
+            const auto& vb = BoundaryOrAllVertices(b);
+
+            const double boundary_dist = MinDistanceBetweenVertexSets(
+                    mesh.vertices_, va, vb, boundary_thresh);
+
+            if (boundary_dist > boundary_thresh) continue;
+
+            dsu.Union(i, j);
+            ++merged_pair_count;
+        }
+    }
+
+    std::unordered_map<int, std::vector<int>> root_to_group;
+    for (int i = 0; i < n; ++i) {
+        root_to_group[dsu.Find(i)].push_back(i);
+    }
+
+    groups.reserve(root_to_group.size());
+    for (auto& kv : root_to_group) {
+        groups.push_back(std::move(kv.second));
+    }
+
+    std::sort(groups.begin(), groups.end(),
+              [](const std::vector<int>& a, const std::vector<int>& b) {
+                  return a.front() < b.front();
+              });
+
+    if (verbose) {
+        int multi_groups = 0;
+        for (const auto& g : groups) {
+            if (g.size() > 1) ++multi_groups;
+        }
+        std::cout << "[INFO] Component merge pairs   = " << merged_pair_count << "\n";
+        std::cout << "[INFO] Merge groups total      = " << groups.size() << "\n";
+        std::cout << "[INFO] Merge groups (size > 1) = " << multi_groups << "\n";
+    }
+
+    return groups;
+}
+
+std::vector<std::vector<int>> BuildMergedComponents(
+        const std::vector<ComponentInfo>& component_infos,
+        const std::vector<std::vector<int>>& merge_groups) {
+    std::vector<std::vector<int>> merged_components;
+    merged_components.reserve(merge_groups.size());
+
+    for (const auto& group : merge_groups) {
+        std::unordered_set<int> vertex_set;
+
+        for (int comp_idx : group) {
+            const auto& verts = component_infos[comp_idx].vertex_indices;
+            vertex_set.insert(verts.begin(), verts.end());
+        }
+
+        std::vector<int> merged(vertex_set.begin(), vertex_set.end());
+        std::sort(merged.begin(), merged.end());
+        merged_components.push_back(std::move(merged));
+    }
+
+    return merged_components;
+}
 void FilterBoulderComponents(const std::vector<ComponentInfo>& component_infos,
                              std::vector<ComponentInfo>& kept,
                              std::vector<ComponentInfo>& rejected,
@@ -743,6 +994,95 @@ void FilterBoulderComponents(const std::vector<ComponentInfo>& component_infos,
         std::cout << "[INFO] Kept components     = " << kept.size() << "\n";
         std::cout << "[INFO] Rejected components = " << rejected.size() << "\n";
     }
+}
+
+BoulderSizeDistribution ComputeBoulderSizeDistribution(
+        const std::vector<ComponentInfo>& kept_boulders,
+        double total_surface_area,
+        int num_bins,
+        bool log_bins,
+        bool verbose) {
+    BoulderSizeDistribution out;
+
+    for (const auto& info : kept_boulders) {
+        if (std::isfinite(info.diameter_estimate) && info.diameter_estimate > 0.0) {
+            out.diameters_sorted.push_back(info.diameter_estimate);
+        }
+    }
+
+    if (out.diameters_sorted.empty()) {
+        if (verbose) {
+            std::cout << "[INFO] No valid boulder diameters for size distribution.\n";
+        }
+        return out;
+    }
+
+    std::sort(out.diameters_sorted.begin(), out.diameters_sorted.end());
+
+    const int bins = std::max(1, num_bins);
+    const double dmin = out.diameters_sorted.front();
+    const double dmax = out.diameters_sorted.back();
+
+    out.bin_edges.resize(bins + 1, dmin);
+    out.bin_centers.resize(bins, dmin);
+    out.bin_counts.assign(bins, 0);
+    out.cumulative_counts_ge.assign(bins, 0);
+    out.cumulative_number_density_ge.assign(bins, 0.0);
+
+    if (dmax <= dmin * (1.0 + 1e-12)) {
+        out.bin_edges[0] = dmin;
+        out.bin_edges[1] = dmax * (1.0 + 1e-6) + 1e-12;
+        out.bin_centers[0] = dmin;
+        out.bin_counts[0] = static_cast<int>(out.diameters_sorted.size());
+        out.cumulative_counts_ge[0] = static_cast<int>(out.diameters_sorted.size());
+        out.cumulative_number_density_ge[0] =
+                static_cast<double>(out.cumulative_counts_ge[0]) /
+                std::max(total_surface_area, 1e-12);
+        return out;
+    }
+
+    if (log_bins && dmin > 0.0) {
+        const double log_min = std::log10(dmin);
+        const double log_max = std::log10(dmax);
+
+        for (int i = 0; i <= bins; ++i) {
+            const double t = static_cast<double>(i) / static_cast<double>(bins);
+            out.bin_edges[i] = std::pow(10.0, log_min + t * (log_max - log_min));
+        }
+        for (int i = 0; i < bins; ++i) {
+            out.bin_centers[i] = std::sqrt(out.bin_edges[i] * out.bin_edges[i + 1]);
+        }
+    } else {
+        const double step = (dmax - dmin) / static_cast<double>(bins);
+        for (int i = 0; i <= bins; ++i) {
+            out.bin_edges[i] = dmin + step * static_cast<double>(i);
+        }
+        for (int i = 0; i < bins; ++i) {
+            out.bin_centers[i] = 0.5 * (out.bin_edges[i] + out.bin_edges[i + 1]);
+        }
+    }
+
+    for (double d : out.diameters_sorted) {
+        auto it = std::upper_bound(out.bin_edges.begin(), out.bin_edges.end(), d);
+        int idx = static_cast<int>(it - out.bin_edges.begin()) - 1;
+        idx = std::max(0, std::min(idx, bins - 1));
+        out.bin_counts[idx] += 1;
+    }
+
+    int running = 0;
+    for (int i = bins - 1; i >= 0; --i) {
+        running += out.bin_counts[i];
+        out.cumulative_counts_ge[i] = running;
+        out.cumulative_number_density_ge[i] =
+                static_cast<double>(running) / std::max(total_surface_area, 1e-12);
+    }
+
+    if (verbose) {
+        std::cout << "[INFO] Boulder size distribution computed for "
+                  << out.diameters_sorted.size() << " boulders.\n";
+    }
+
+    return out;
 }
 
 std::vector<Eigen::Vector3d> ScalarToColors(const std::vector<double>& values,
@@ -928,15 +1268,48 @@ DetectionResult DetectBouldersSingleScale(const PipelineParams& params) {
     ExtractCandidateComponents(cand.candidate_mask, adjacency, labels, components, params.verbose);
     SaveIntVectorTxt(labels, params.output_dir + "/component_labels.txt");
 
-    const auto component_infos = MeasureComponents(*mesh, components, local.heights,
+    
+    const auto raw_component_infos = MeasureComponents(*mesh, components, local.heights,
                                                    adjacency, vertex_to_triangles,
                                                    tri_areas, params.outer_ring_depth,
                                                    params.verbose);
-    SaveComponentInfosJson(component_infos, params.output_dir + "/all_components.json");
+
+    SaveComponentInfosJson(raw_component_infos, params.output_dir + "/all_components_raw.json");
+
+    std::vector<std::vector<int>> working_components = components;
+    std::vector<ComponentInfo> working_component_infos = raw_component_infos;
+
+    if (params.enable_component_merging) {
+        const auto merge_groups = BuildComponentMergeGroups(
+                *mesh,
+                raw_component_infos,
+                mean_edge,
+                params.merge_knn,
+                params.merge_boundary_distance_factor,
+                params.merge_centroid_distance_factor,
+                params.merge_height_difference_factor,
+                params.merge_prominence_difference_factor,
+                params.verbose);
+
+        working_components = BuildMergedComponents(raw_component_infos, merge_groups);
+
+        working_component_infos = MeasureComponents(*mesh, working_components, local.heights,
+                                                adjacency, vertex_to_triangles,
+                                                tri_areas, params.outer_ring_depth,
+                                                params.verbose);
+
+        SaveComponentInfosJson(working_component_infos,
+                            params.output_dir + "/all_components_merged.json");
+        SaveIntVectorTxt(std::vector<int>{static_cast<int>(working_components.size())},
+                        params.output_dir + "/merged_component_count.txt");
+    } else {
+        SaveComponentInfosJson(working_component_infos,
+                            params.output_dir + "/all_components_merged.json");
+    }
 
     std::vector<ComponentInfo> kept;
     std::vector<ComponentInfo> rejected;
-    FilterBoulderComponents(component_infos,
+    FilterBoulderComponents(working_component_infos,
                             kept,
                             rejected,
                             params.min_vertices,
@@ -970,6 +1343,41 @@ DetectionResult DetectBouldersSingleScale(const PipelineParams& params) {
     SaveMesh(*height_mesh, params.output_dir + "/height_field.ply");
     SaveMesh(*candidate_mesh, params.output_dir + "/candidate_vertices.ply");
     SaveMesh(*kept_mesh, params.output_dir + "/detected_boulders.ply");
+    const double total_surface_area =
+        std::accumulate(tri_areas.begin(), tri_areas.end(), 0.0);
+
+    const auto size_dist = ComputeBoulderSizeDistribution(
+            kept,
+            total_surface_area,
+            20,     // số bin
+            true,   // log bins
+            params.verbose);
+
+    SaveDoubleVectorTxt(size_dist.diameters_sorted,
+                        params.output_dir + "/boulder_diameters.txt");
+
+    SaveCsvXY_Int(size_dist.bin_centers,
+                size_dist.bin_counts,
+                params.output_dir + "/boulder_size_histogram.csv",
+                "diameter_center",
+                "count");
+
+    SaveCsvXY_Int(size_dist.bin_centers,
+                size_dist.cumulative_counts_ge,
+                params.output_dir + "/boulder_size_cumulative_counts.csv",
+                "diameter_center",
+                "N_ge_D");
+
+    SaveCsvXY_Double(size_dist.bin_centers,
+                    size_dist.cumulative_number_density_ge,
+                    params.output_dir + "/boulder_size_cumulative.csv",
+                    "diameter_center",
+                    "N_ge_D_per_surface_area");
+
+    WriteBoulderDistributionGnuplotScript(params.output_dir, params.mesh_path);
+    const std::string gp_cmd =
+        "gnuplot \"" + params.output_dir + "/plot_boulder_distribution.gp\"";
+    std::system(gp_cmd.c_str());
 
     if (params.visualize) {
         std::cout << "[INFO] Visualizing height field...\n";
@@ -994,8 +1402,8 @@ DetectionResult DetectBouldersSingleScale(const PipelineParams& params) {
     result.candidate_mask = cand.candidate_mask;
     result.pred_vertex_mask = pred_vertex_mask;
     result.labels = labels;
-    result.components = components;
-    result.all_component_infos = component_infos;
+    result.components = working_components;
+    result.all_component_infos = working_component_infos;
     result.kept_boulders = kept;
     result.rejected_components = rejected;
     result.used_threshold = cand.used_threshold;

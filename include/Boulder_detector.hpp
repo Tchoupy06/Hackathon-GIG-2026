@@ -107,6 +107,15 @@ struct DetectionResult {
     double used_threshold = 0.0;
 };
 
+struct BoulderSizeDistribution {
+        std::vector<double> diameters_sorted;
+        std::vector<double> bin_edges;
+        std::vector<double> bin_centers;
+        std::vector<int> bin_counts;
+        std::vector<int> cumulative_counts_ge;
+        std::vector<double> cumulative_number_density_ge;
+};
+
 struct PipelineParams {
     std::string mesh_path;
     std::string output_dir = "boulder_output_single_scale";
@@ -135,7 +144,16 @@ struct PipelineParams {
 
     bool visualize = true;
     bool verbose = true;
+
+    //for merge 
+    bool enable_component_merging = false;
+    int merge_knn = 24;
+    double merge_boundary_distance_factor = 4.0;
+    double merge_centroid_distance_factor = 1.5;
+    double merge_height_difference_factor = 2.0;
+    double merge_prominence_difference_factor = 2.0;
 };
+
 
 std::shared_ptr<open3d::geometry::TriangleMesh> LoadMesh(const std::string& mesh_path,
                                                          bool verbose = true);
@@ -224,6 +242,14 @@ void FilterBoulderComponents(const std::vector<ComponentInfo>& component_infos,
                              double max_boundary_irregularity = std::numeric_limits<double>::infinity(),
                              bool verbose = true);
 
+BoulderSizeDistribution ComputeBoulderSizeDistribution(
+                        const std::vector<ComponentInfo>& kept_boulders,
+                        double total_surface_area,
+                        int num_bins = 20,
+                        bool log_bins = true,
+                        bool verbose = true);
+
+
 std::vector<Eigen::Vector3d> ScalarToColors(const std::vector<double>& values,
                                             const std::vector<std::uint8_t>* valid_mask = nullptr);
 
@@ -250,6 +276,20 @@ void SaveIntVectorTxt(const std::vector<int>& values, const std::string& path);
 void SaveMaskTxt(const std::vector<std::uint8_t>& values, const std::string& path);
 
 DetectionResult DetectBouldersSingleScale(const PipelineParams& params);
+std::vector<std::vector<int>> BuildComponentMergeGroups(
+        const open3d::geometry::TriangleMesh& mesh,
+        const std::vector<ComponentInfo>& component_infos,
+        double mean_edge_length,
+        int merge_knn = 24,
+        double merge_boundary_distance_factor = 4.0,
+        double merge_centroid_distance_factor = 1.5,
+        double merge_height_difference_factor = 2.0,
+        double merge_prominence_difference_factor = 2.0,
+        bool verbose = true);
+
+std::vector<std::vector<int>> BuildMergedComponents(
+        const std::vector<ComponentInfo>& component_infos,
+        const std::vector<std::vector<int>>& merge_groups);
 
 }  // namespace boulder
 

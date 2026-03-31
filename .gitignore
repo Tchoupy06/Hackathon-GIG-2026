@@ -1,85 +1,29 @@
-# =========================
-# Project-specific folders
-# =========================
-/data/
-/build/
-/boulder_demo_single_scale/
+# Ignore everything by default
+*
 
-# =========================
-# CMake / build system
-# =========================
-/CMakeCache.txt
-/CMakeFiles/
-/cmake-build-*/
-/compile_commands.json
-/CTestTestfile.cmake
-/cmake_install.cmake
-/Makefile
-/install_manifest.txt
+# Keep gitignore itself
+!.gitignore
 
-# =========================
-# Binary / object files
-# =========================
-*.o
-*.obj
-*.lo
-*.slo
-*.pdb
-*.mod
-*.lai
-*.la
-*.a
-*.lib
-*.so
-*.dylib
-*.dll
-*.exe
-*.out
-*.app
+# Keep project metadata / docs
+!README.md
+!CMakeLists.txt
 
-# =========================
-# Generated executables / bins
-# =========================
-/bin/
-/lib/
-/Debug/
-/Release/
-/x64/
-/x86/
+# Keep source code folders
+!src/
+!src/**
+!include/
+!include/**
 
-# =========================
-# macOS
-# =========================
-.DS_Store
-.AppleDouble
-.LSOverride
+# Keep common source/header files at root if you ever add them
+!*.cpp
+!*.cc
+!*.c
+!*.h
+!*.hpp
+!*.hh
+!*.inl
 
-# =========================
-# Editors / IDEs
-# =========================
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# =========================
-# Logs / temp files
-# =========================
-*.log
-*.tmp
-*.temp
-
-# =========================
-# Python caches (if any helper scripts exist)
-# =========================
-__pycache__/
-*.pyc
-
-# =========================
-# Mesh / result files you likely don't want in git
-# Uncomment if needed
-# =========================
-# *.ply
-# *.json
-# *.txt
+# Keep common build/config text files if needed
+!*.txt
+!*.md
+!*.cmake
